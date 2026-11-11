@@ -66,7 +66,6 @@ describe("PATCH /api/v1/users", () => {
       const createdUser2 = await orchestrator.createUser({
         email: "email@curso.dev",
       });
-      console.log(createdUser2);
       const response3 = await fetch(
         `http://localhost:3000/api/v1/users/${createdUser2.username}`,
         {
@@ -111,6 +110,7 @@ describe("PATCH /api/v1/users", () => {
         id: response3Body.id,
         username: "unique2",
         email: newUniqueUser1.email,
+        features: ["read:activation_token"],
         password: response3Body.password,
         created_at: response3Body.created_at,
         updated_at: response3Body.updated_at,
@@ -144,6 +144,7 @@ describe("PATCH /api/v1/users", () => {
         id: response3Body.id,
         username: createdUser.username,
         email: "uniqueemail2@curso.dev",
+        features: ["read:activation_token"],
         password: response3Body.password,
         created_at: response3Body.created_at,
         updated_at: response3Body.updated_at,
@@ -178,6 +179,7 @@ describe("PATCH /api/v1/users", () => {
         id: response3Body.id,
         username: createdUser.username,
         email: createdUser.email,
+        features: ["read:activation_token"],
         password: response3Body.password,
         created_at: response3Body.created_at,
         updated_at: response3Body.updated_at,

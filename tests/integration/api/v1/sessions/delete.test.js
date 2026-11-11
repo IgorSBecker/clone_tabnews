@@ -133,7 +133,6 @@ describe("DELETE /api/v1/sessions", () => {
         action: "Verifique se o usuário está logado e tente novamente.",
         status_code: 401,
       });
-      console.log(doubleCheckResponseBody);
     });
   });
 });

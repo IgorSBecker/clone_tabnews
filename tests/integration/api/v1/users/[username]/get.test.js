@@ -19,11 +19,11 @@ describe("GET /api/v1/users", () => {
       expect(response.status).toBe(200);
 
       const responseBody = await response.json();
-      console.log(responseBody);
       expect(responseBody).toEqual({
         id: responseBody.id,
         username: "MesmoCase",
         email: createdUser.email,
+        features: ["read:activation_token"],
         password: responseBody.password,
         created_at: responseBody.created_at,
         updated_at: responseBody.updated_at,
@@ -45,11 +45,11 @@ describe("GET /api/v1/users", () => {
       expect(response.status).toBe(200);
 
       const responseBody = await response.json();
-      console.log(responseBody);
       expect(responseBody).toEqual({
         id: responseBody.id,
         username: "CaseDiferente",
         email: createdUser.email,
+        features: ["read:activation_token"],
         password: responseBody.password,
         created_at: responseBody.created_at,
         updated_at: responseBody.updated_at,
@@ -67,7 +67,6 @@ describe("GET /api/v1/users", () => {
       expect(response.status).toBe(404);
 
       const responseBody = await response.json();
-      console.log(responseBody);
       expect(responseBody).toEqual({
         name: "NotFoundError",
         message: "O username informado não foi encontrado no sistema.",
