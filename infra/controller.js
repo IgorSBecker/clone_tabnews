@@ -1,65 +1,90 @@
-import * as cookie from "cookie";
-import session from "models/session.js";
+import user from "models/user.js";
+import activation from "models/activation.js";
+import orchestrator from "tests/orchestrator.js";
+import webserver from "infra/webserver.js";
 
-import {
-  InternalServerError,
-  MethodNotAllowedError,
-  ValidationError,
-  NotFoundError,
-  UnauthorizedError,
-} from "infra/errors";
+beforeAll(async () => {
+  await orchestrator.waitForAllServices();
+  await orchestrator.clearDatabase();
+  await orchestrator.runPendingMigrations();
+  await orchestrator.deleteAllEmails();
+});
 
-function onNoMatchHandler(request, response) {
-  const publicErrorObject = new MethodNotAllowedError();
-  response.status(publicErrorObject.statusCode).json(publicErrorObject);
-}
+describe("Use case: Registration Flow (all successful)", () => {
+  let createUserResponseBody;
+  let activationTokenId;
 
-function onErrorHandler(error, request, response) {
-  if (
-    error instanceof ValidationError ||
-    error instanceof NotFoundError ||
-    error instanceof UnauthorizedError
-  ) {
-    return response.status(error.statusCode).json(error);
-  }
+  test("Create user account", async () => {
+    const createUserResponse = await fetch(
+      "http://localhost:3000/api/v1/users",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: "RegistrationFlow",
+          email: "registration.flow@curso.dev",
+          password: "RegistrationFlowPassword",
+        }),
+      },
+    );
 
-  const publicErrorObject = new InternalServerError({
-    cause: error,
+    expect(createUserResponse.status).toBe(201);
+
+    createUserResponseBody = await createUserResponse.json();
+
+    expect(createUserResponseBody).toEqual({
+      id: createUserResponseBody.id,
+      username: "RegistrationFlow",
+      email: "registration.flow@curso.dev",
+      features: ["read:activation_token"],
+      password: createUserResponseBody.password,
+      created_at: createUserResponseBody.created_at,
+      updated_at: createUserResponseBody.updated_at,
+    });
   });
 
-  console.error(publicErrorObject);
+  test("Receive activation email", async () => {
+    const lastEmail = await orchestrator.getLastEmail();
 
-  response.status(publicErrorObject.statusCode).json(publicErrorObject);
-}
-async function setSessionCookie(sessionToken, response) {
-  const setCookie = cookie.serialize("session_id", sessionToken, {
-    path: "/",
-    maxAge: session.EXPIRATION_IN_MILLISECONDS / 1000,
-    secure: process.env.NODE_ENV === "production",
-    httpOnly: true,
+    expect(lastEmail.sender).toBe("<contato@fintab.com.br>");
+    expect(lastEmail.recipients[0]).toBe("<registration.flow@curso.dev>");
+    expect(lastEmail.subject).toBe("Ative seu cadastro no FinTab!");
+    expect(lastEmail.text).toContain("RegistrationFlow");
+
+    activationTokenId = orchestrator.extractUUID(lastEmail.text);
+
+    expect(lastEmail.text).toContain(
+      `${webserver.origin}/cadastro/ativar/${activationTokenId}`,
+    );
+
+    const activationTokenObject =
+      await activation.findOneValidById(activationTokenId);
+
+    expect(activationTokenObject.user_id).toBe(createUserResponseBody.id);
+    expect(activationTokenObject.used_at).toBe(null);
   });
 
-  response.setHeader("Set-Cookie", setCookie);
-}
+  test("Activate account", async () => {
+    const activationResponse = await fetch(
+      `http://localhost:3000/api/v1/activations/${activationTokenId}`,
+      {
+        method: "PATCH",
+      },
+    );
 
-async function clearSessionCookie(response) {
-  const setCookie = cookie.serialize("session_id", "invalid", {
-    path: "/",
-    maxAge: -1,
-    secure: process.env.NODE_ENV === "production",
-    httpOnly: true,
+    expect(activationResponse.status).toBe(200);
+
+    const activationResponseBody = await activationResponse.json();
+
+    expect(Date.parse(activationResponseBody.used_at)).not.toBeNaN();
+
+    const activatedUser = await user.findOneByUsername("RegistrationFlow");
+    expect(activatedUser.features).toEqual(["create:session"]);
   });
 
-  response.setHeader("Set-Cookie", setCookie);
-}
+  test("Login", async () => {});
 
-const controller = {
-  errorHandlers: {
-    onNoMatch: onNoMatchHandler,
-    onError: onErrorHandler,
-  },
-  setSessionCookie,
-  clearSessionCookie,
-};
-
-export default controller;
+  test("Get user information", async () => {});
+});

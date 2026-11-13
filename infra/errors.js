@@ -24,7 +24,7 @@ export class ServiceError extends Error {
       cause,
     });
     this.name = "ServiceError";
-    this.action = "Verifique se o serviço está disponível";
+    this.action = "Verifique se o serviço está disponível.";
     this.statusCode = 503;
   }
 
@@ -37,13 +37,14 @@ export class ServiceError extends Error {
     };
   }
 }
+
 export class ValidationError extends Error {
   constructor({ cause, message, action }) {
     super(message || "Um erro de validação ocorreu.", {
       cause,
     });
     this.name = "ValidationError";
-    this.action = action || "Ajustes os dados enviados e tente novamente.";
+    this.action = action || "Ajuste os dados enviados e tente novamente.";
     this.statusCode = 400;
   }
 
@@ -77,6 +78,28 @@ export class NotFoundError extends Error {
     };
   }
 }
+
+export class ForbiddenError extends Error {
+  constructor({ cause, message, action }) {
+    super(message || "Acesso negado.", {
+      cause,
+    });
+    this.name = "ForbiddenError";
+    this.action =
+      action || "Verifique as features necessárias antes de continuar.";
+    this.statusCode = 403;
+  }
+
+  toJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      action: this.action,
+      status_code: this.statusCode,
+    };
+  }
+}
+
 export class UnauthorizedError extends Error {
   constructor({ cause, message, action }) {
     super(message || "Usuário não autenticado.", {
@@ -99,9 +122,10 @@ export class UnauthorizedError extends Error {
 
 export class MethodNotAllowedError extends Error {
   constructor() {
-    super("Método nao permitido para este endpoint.");
+    super("Método não permitido para este endpoint.");
     this.name = "MethodNotAllowedError";
-    this.action = "Verifique se o metodo HTTP enviado é permitido";
+    this.action =
+      "Verifique se o método HTTP enviado é válido para este endpoint.";
     this.statusCode = 405;
   }
 
