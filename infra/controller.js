@@ -1,90 +1,123 @@
+import * as cookie from "cookie";
+import session from "models/session.js";
 import user from "models/user.js";
-import activation from "models/activation.js";
-import orchestrator from "tests/orchestrator.js";
-import webserver from "infra/webserver.js";
+import authorization from "models/authorization.js";
 
-beforeAll(async () => {
-  await orchestrator.waitForAllServices();
-  await orchestrator.clearDatabase();
-  await orchestrator.runPendingMigrations();
-  await orchestrator.deleteAllEmails();
-});
+import {
+  InternalServerError,
+  MethodNotAllowedError,
+  ValidationError,
+  NotFoundError,
+  UnauthorizedError,
+  ForbiddenError,
+} from "infra/errors";
 
-describe("Use case: Registration Flow (all successful)", () => {
-  let createUserResponseBody;
-  let activationTokenId;
+function onNoMatchHandler(request, response) {
+  const publicErrorObject = new MethodNotAllowedError();
+  response.status(publicErrorObject.statusCode).json(publicErrorObject);
+}
 
-  test("Create user account", async () => {
-    const createUserResponse = await fetch(
-      "http://localhost:3000/api/v1/users",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username: "RegistrationFlow",
-          email: "registration.flow@curso.dev",
-          password: "RegistrationFlowPassword",
-        }),
-      },
-    );
+function onErrorHandler(error, request, response) {
+  if (
+    error instanceof ValidationError ||
+    error instanceof NotFoundError ||
+    error instanceof ForbiddenError
+  ) {
+    return response.status(error.statusCode).json(error);
+  }
 
-    expect(createUserResponse.status).toBe(201);
+  if (error instanceof UnauthorizedError) {
+    clearSessionCookie(response);
+    return response.status(error.statusCode).json(error);
+  }
 
-    createUserResponseBody = await createUserResponse.json();
+  const publicErrorObject = new InternalServerError({
+    cause: error,
+  });
 
-    expect(createUserResponseBody).toEqual({
-      id: createUserResponseBody.id,
-      username: "RegistrationFlow",
-      email: "registration.flow@curso.dev",
-      features: ["read:activation_token"],
-      password: createUserResponseBody.password,
-      created_at: createUserResponseBody.created_at,
-      updated_at: createUserResponseBody.updated_at,
+  console.error(publicErrorObject);
+
+  response.status(publicErrorObject.statusCode).json(publicErrorObject);
+}
+
+async function setSessionCookie(sessionToken, response) {
+  const setCookie = cookie.serialize("session_id", sessionToken, {
+    path: "/",
+    maxAge: session.EXPIRATION_IN_MILLISECONDS / 1000,
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+  });
+
+  response.setHeader("Set-Cookie", setCookie);
+}
+
+async function clearSessionCookie(response) {
+  const setCookie = cookie.serialize("session_id", "invalid", {
+    path: "/",
+    maxAge: -1,
+    secure: process.env.NODE_ENV === "production",
+    httpOnly: true,
+  });
+
+  response.setHeader("Set-Cookie", setCookie);
+}
+
+async function injectAnonymousOrUser(request, response, next) {
+  if (request.cookies?.session_id) {
+    await injectAuthenticatedUser(request);
+    return next();
+  }
+
+  injectAnonymousUser(request);
+  return next();
+}
+
+async function injectAuthenticatedUser(request) {
+  const sessionToken = request.cookies.session_id;
+  const sessionObject = await session.findOneValidByToken(sessionToken);
+  const userObject = await user.findOneById(sessionObject.user_id);
+
+  request.context = {
+    ...request.context,
+    user: userObject,
+  };
+}
+
+function injectAnonymousUser(request) {
+  const anonymousUserObject = {
+    features: ["read:activation_token", "create:session", "create:user"],
+  };
+
+  request.context = {
+    ...request.context,
+    user: anonymousUserObject,
+  };
+}
+
+function canRequest(feature) {
+  return function canRequestMiddleware(request, response, next) {
+    const userTryingToRequest = request.context.user;
+
+    if (authorization.can(userTryingToRequest, feature)) {
+      return next();
+    }
+
+    throw new ForbiddenError({
+      message: "Você não possui permissão para executar esta ação.",
+      action: `Verifique se o seu usuário possui a feature "${feature}"`,
     });
-  });
+  };
+}
 
-  test("Receive activation email", async () => {
-    const lastEmail = await orchestrator.getLastEmail();
+const controller = {
+  errorHandlers: {
+    onNoMatch: onNoMatchHandler,
+    onError: onErrorHandler,
+  },
+  setSessionCookie,
+  clearSessionCookie,
+  injectAnonymousOrUser,
+  canRequest,
+};
 
-    expect(lastEmail.sender).toBe("<contato@fintab.com.br>");
-    expect(lastEmail.recipients[0]).toBe("<registration.flow@curso.dev>");
-    expect(lastEmail.subject).toBe("Ative seu cadastro no FinTab!");
-    expect(lastEmail.text).toContain("RegistrationFlow");
-
-    activationTokenId = orchestrator.extractUUID(lastEmail.text);
-
-    expect(lastEmail.text).toContain(
-      `${webserver.origin}/cadastro/ativar/${activationTokenId}`,
-    );
-
-    const activationTokenObject =
-      await activation.findOneValidById(activationTokenId);
-
-    expect(activationTokenObject.user_id).toBe(createUserResponseBody.id);
-    expect(activationTokenObject.used_at).toBe(null);
-  });
-
-  test("Activate account", async () => {
-    const activationResponse = await fetch(
-      `http://localhost:3000/api/v1/activations/${activationTokenId}`,
-      {
-        method: "PATCH",
-      },
-    );
-
-    expect(activationResponse.status).toBe(200);
-
-    const activationResponseBody = await activationResponse.json();
-
-    expect(Date.parse(activationResponseBody.used_at)).not.toBeNaN();
-
-    const activatedUser = await user.findOneByUsername("RegistrationFlow");
-    expect(activatedUser.features).toEqual(["create:session"]);
-  });
-
-  test("Login", async () => {});
-
-  test("Get user information", async () => {});
-});
+export default controller;
