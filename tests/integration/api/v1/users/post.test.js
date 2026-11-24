@@ -23,15 +23,15 @@ describe("POST /api/v1/users", () => {
           password: "senha123",
         }),
       });
+
       expect(response.status).toBe(201);
+
       const responseBody = await response.json();
 
       expect(responseBody).toEqual({
         id: responseBody.id,
         username: "filipedeschamps",
-        email: "contato@curso.dev",
         features: ["read:activation_token"],
-        password: responseBody.password,
         created_at: responseBody.created_at,
         updated_at: responseBody.updated_at,
       });
@@ -45,13 +45,16 @@ describe("POST /api/v1/users", () => {
         "senha123",
         userInDatabase.password,
       );
-      expect(correctPasswordMatch).toBe(true);
+
       const incorrectPasswordMatch = await password.compare(
-        "Senha123",
+        "SenhaErrada",
         userInDatabase.password,
       );
+
+      expect(correctPasswordMatch).toBe(true);
       expect(incorrectPasswordMatch).toBe(false);
     });
+
     test("With duplicated 'email'", async () => {
       const response1 = await fetch("http://localhost:3000/api/v1/users", {
         method: "POST",
@@ -64,7 +67,9 @@ describe("POST /api/v1/users", () => {
           password: "senha123",
         }),
       });
+
       expect(response1.status).toBe(201);
+
       const response2 = await fetch("http://localhost:3000/api/v1/users", {
         method: "POST",
         headers: {
@@ -76,8 +81,11 @@ describe("POST /api/v1/users", () => {
           password: "senha123",
         }),
       });
+
       expect(response2.status).toBe(400);
+
       const response2Body = await response2.json();
+
       expect(response2Body).toEqual({
         name: "ValidationError",
         message: "O email informado já está sendo utilizado.",
@@ -85,7 +93,8 @@ describe("POST /api/v1/users", () => {
         status_code: 400,
       });
     });
-    test("With duplicated 'username' and different 'email'", async () => {
+
+    test("With duplicated 'username'", async () => {
       const response1 = await fetch("http://localhost:3000/api/v1/users", {
         method: "POST",
         headers: {
@@ -97,25 +106,62 @@ describe("POST /api/v1/users", () => {
           password: "senha123",
         }),
       });
+
       expect(response1.status).toBe(201);
+
       const response2 = await fetch("http://localhost:3000/api/v1/users", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          username: "usernameduplicado",
+          username: "UsernameDuplicado",
           email: "usernameduplicado2@curso.dev",
           password: "senha123",
         }),
       });
+
       expect(response2.status).toBe(400);
+
       const response2Body = await response2.json();
+
       expect(response2Body).toEqual({
         name: "ValidationError",
         message: "O username informado já está sendo utilizado.",
         action: "Utilize outro username para realizar esta operação.",
         status_code: 400,
+      });
+    });
+  });
+
+  describe("Default user", () => {
+    test("With unique and valid data", async () => {
+      const user1 = await orchestrator.createUser();
+      await orchestrator.activateUser(user1);
+      const user1SessionObject = await orchestrator.createSession(user1.id);
+
+      const user2Response = await fetch("http://localhost:3000/api/v1/users", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Cookie: `session_id=${user1SessionObject.token}`,
+        },
+        body: JSON.stringify({
+          username: "usuariologado",
+          email: "usuariologado@curso.dev",
+          password: "senha123",
+        }),
+      });
+
+      expect(user2Response.status).toBe(403);
+
+      const user2ResponseBody = await user2Response.json();
+
+      expect(user2ResponseBody).toEqual({
+        name: "ForbiddenError",
+        message: "Você não possui permissão para executar esta ação.",
+        action: 'Verifique se o seu usuário possui a feature "create:user"',
+        status_code: 403,
       });
     });
   });
